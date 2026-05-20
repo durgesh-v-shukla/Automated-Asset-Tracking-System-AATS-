@@ -14,6 +14,8 @@ On later runs : skips setup and launches the agent directly.
 
 import json
 import os
+import asyncio
+import re
 import socket
 import subprocess
 import sys
@@ -22,6 +24,14 @@ import winreg
 import ctypes
 import urllib.request
 import urllib.error
+import importlib
+
+BleakScanner = None
+try:
+    bleak_module = importlib.import_module("bleak")
+    BleakScanner = getattr(bleak_module, "BleakScanner", None)
+except Exception:
+    BleakScanner = None
 
 # ── Configuration ──────────────────────────────────────────
 BROADCAST_PORT    = 37020
@@ -32,6 +42,14 @@ STARTUP_REG_KEY   = r"Software\Microsoft\Windows\CurrentVersion\Run"
 AGENT_SERVICE_NAME = "AATSAgentService"
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # ───────────────────────────────────────────────────────────
+
+
+def normalize_mac_address(value: str) -> str:
+    return value.strip().upper()
+
+
+def is_valid_mac_address(value: str) -> bool:
+    return bool(re.match(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$", value.strip().upper()))
 
 
 def get_base_dir() -> str:
@@ -408,9 +426,120 @@ def pick_usb_devices(devices: list[dict]) -> list[dict]:
     return chosen
 
 
+async def scan_bluetooth_devices_async() -> list[dict]:
+    if BleakScanner is None:
+        return []
+
+    discovered = await BleakScanner.discover(timeout=5.0, return_adv=False)
+    devices: list[dict] = []
+    seen_macs: set[str] = set()
+
+    for item in discovered:
+        mac = normalize_mac_address(getattr(item, "address", "") or "")
+        if not mac or mac in seen_macs:
+            continue
+        seen_macs.add(mac)
+
+        alias = (getattr(item, "name", None) or getattr(item, "local_name", None) or mac)
+        devices.append(
+            {
+                "device_id": f"bt_{mac.replace(':', '').lower()}",
+                "mac": mac,
+                "alias": alias,
+                "weak_rssi_threshold": -75,
+            }
+        )
+
+    return devices
+
+
+def scan_bluetooth_devices() -> list[dict]:
+    if BleakScanner is None:
+        print("[!] Bluetooth scanning is unavailable because 'bleak' is not installed.")
+        return []
+
+    print("[*] Scanning nearby Bluetooth devices...")
+    try:
+        return asyncio.run(scan_bluetooth_devices_async())
+    except Exception as exc:
+        print(f"[!] Bluetooth scan failed: {exc}")
+        return []
+
+
+def pick_bluetooth_devices(devices: list[dict]) -> list[dict]:
+    chosen: list[dict] = []
+    chosen_macs: set[str] = set()
+
+    if devices:
+        print("\n[*] Nearby Bluetooth devices found:")
+        for i, device in enumerate(devices):
+            label = device.get("alias") or device["mac"]
+            print(f"    {i + 1}. {label} ({device['mac']})")
+
+        print("\n[?] Enter the numbers of Bluetooth devices to monitor (e.g. 1,3) or press Enter to skip scanned devices:")
+        selection = input("    > ").strip()
+
+        if selection:
+            for part in selection.split(","):
+                try:
+                    idx = int(part.strip()) - 1
+                    if 0 <= idx < len(devices):
+                        device = devices[idx]
+                        mac = device["mac"]
+                        if mac in chosen_macs:
+                            continue
+                        chosen_macs.add(mac)
+                        chosen.append(
+                            {
+                                "device_id": device["device_id"],
+                                "mac": mac,
+                                "alias": device.get("alias", device["mac"]),
+                                "weak_rssi_threshold": device.get("weak_rssi_threshold", -75),
+                            }
+                        )
+                except ValueError:
+                    pass
+    else:
+        print("[!] No Bluetooth devices were discovered automatically.")
+
+    while True:
+        add_manual = input("[?] Add a Bluetooth device manually? (y/N): ").strip().lower()
+        if add_manual != "y":
+            break
+
+        while True:
+            mac = normalize_mac_address(input("    Enter Bluetooth MAC address (AA:BB:CC:DD:EE:FF): ").strip())
+            if is_valid_mac_address(mac):
+                break
+            print("    Invalid MAC address format; please try again.")
+
+        alias = input("    Enter a friendly name for this Bluetooth device (optional): ").strip()
+        threshold_raw = input("    Enter weak RSSI threshold (-75 default): ").strip()
+        try:
+            weak_rssi_threshold = int(threshold_raw) if threshold_raw else -75
+        except ValueError:
+            weak_rssi_threshold = -75
+
+        if mac in chosen_macs:
+            print("    That Bluetooth MAC is already selected; skipping duplicate.")
+            continue
+        chosen_macs.add(mac)
+
+        chosen.append(
+            {
+                "device_id": f"bt_{mac.replace(':', '').lower()}",
+                "mac": mac,
+                "alias": alias or mac,
+                "weak_rssi_threshold": weak_rssi_threshold,
+            }
+        )
+
+    return chosen
+
+
 # ── Step 4: Write config.json ───────────────────────────────
 
-def write_config(base_dir: str, admin_ip: str, lab_id: str, pc_id: str, usb_devices: list[dict]) -> None:
+def write_config(base_dir: str, admin_ip: str, lab_id: str, pc_id: str, usb_devices: list[dict], bluetooth_devices: list[dict]) -> None:
     cfg = {
         "lab_id": lab_id,
         "pc_id": pc_id,
@@ -420,7 +549,7 @@ def write_config(base_dir: str, admin_ip: str, lab_id: str, pc_id: str, usb_devi
         "heartbeat_interval_sec": 30,
         "agent_version": "1.0.0",
         "usb_devices": usb_devices,
-        "bluetooth_devices": []
+        "bluetooth_devices": bluetooth_devices,
     }
     path = config_path(base_dir)
     with open(path, "w") as f:
@@ -542,8 +671,12 @@ def main() -> None:
     usb_devices_raw = scan_usb_devices()
     usb_devices     = pick_usb_devices(usb_devices_raw)
 
+    # Step 3b — Scan and pick Bluetooth devices
+    bluetooth_devices_raw = scan_bluetooth_devices()
+    bluetooth_devices = pick_bluetooth_devices(bluetooth_devices_raw)
+
     # Step 4 — Write config.json (includes selected lab)
-    write_config(base_dir, admin_ip, lab_id, pc_id, usb_devices)
+    write_config(base_dir, admin_ip, lab_id, pc_id, usb_devices, bluetooth_devices)
 
     # Step 5 — Configure startup mode
     startup_mode = setup_startup_mode(base_dir)
@@ -554,6 +687,7 @@ def main() -> None:
     print(f"  PC ID     : {pc_id}")
     print(f"  Lab ID    : {lab_id}")
     print(f"  Devices   : {len(usb_devices)} USB device(s) configured")
+    print(f"  Bluetooth : {len(bluetooth_devices)} Bluetooth device(s) configured")
     if startup_mode == "service":
         print("  Auto-start: Windows service (boot resilient)")
     else:
