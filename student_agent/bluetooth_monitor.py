@@ -22,6 +22,7 @@ class BluetoothMonitor:
         self.on_change_callback = on_change_callback
         self.running = False
         self._state: Dict[str, str] = {}
+        self._available = BleakScanner is not None
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -45,6 +46,9 @@ class BluetoothMonitor:
         if self.on_change_callback:
             self.on_change_callback(payload)
 
+    def is_available(self) -> bool:
+        return self._available
+
     def _resolve_status(self, rssi: Optional[int], weak_threshold: int) -> str:
         if rssi is None:
             return "MISSING"
@@ -63,8 +67,8 @@ class BluetoothMonitor:
         self.running = False
 
     def _monitor_loop(self) -> None:
-        if BleakScanner is None:
-            print("Bleak is not installed. Bluetooth monitor disabled.")
+        if not self._available:
+            print("[!] Bleak is not installed. Bluetooth monitoring is disabled.")
             return
 
         while self.running:

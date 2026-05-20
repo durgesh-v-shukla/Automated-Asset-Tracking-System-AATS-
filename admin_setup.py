@@ -92,10 +92,9 @@ def get_base_dir() -> str:
     When running as a PyInstaller EXE from dist/, we go one level up
     to reach the actual project root where server/ and admin_dashboard/ live.
     """
-    path = os.path.dirname(os.path.abspath(sys.argv[0]))
     if getattr(sys, "frozen", False):
-        path = os.path.dirname(path)  # go up from dist/ to project root
-    return path
+        return os.path.dirname(os.path.dirname(os.path.abspath(sys.executable)))
+    return os.path.dirname(os.path.abspath(__file__))
 
 
 def get_local_ip() -> str:

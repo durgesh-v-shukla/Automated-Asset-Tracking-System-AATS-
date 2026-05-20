@@ -36,10 +36,9 @@ CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 def get_base_dir() -> str:
     """Project root — works both as .py and as PyInstaller EXE."""
-    path = os.path.dirname(os.path.abspath(sys.argv[0]))
     if getattr(sys, "frozen", False):
-        path = os.path.dirname(path)  # go up from dist/ to project root
-    return path
+        return os.path.dirname(os.path.dirname(os.path.abspath(sys.executable)))
+    return os.path.dirname(os.path.abspath(__file__))
 
 
 def get_python() -> str:

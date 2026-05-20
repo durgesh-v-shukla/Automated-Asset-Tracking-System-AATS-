@@ -18,7 +18,7 @@ class Settings:
     mqtt_broker: str = os.getenv("AATS_MQTT_BROKER", "localhost")
     mqtt_port: int = int(os.getenv("AATS_MQTT_PORT", "1883"))
     db_path: str = os.getenv("AATS_DB_PATH", "server/database/aats.db")
-    usb_missing_timeout_sec: int = int(os.getenv("AATS_USB_TIMEOUT_SEC", "60"))
+    usb_missing_timeout_sec: int = int(os.getenv("AATS_USB_TIMEOUT_SEC", "15"))
     bluetooth_missing_timeout_sec: int = int(os.getenv("AATS_BT_TIMEOUT_SEC", "300"))
     admin_username: str = env_or_default("AATS_ADMIN_USERNAME", "admin")
     admin_password: str = env_or_default("AATS_ADMIN_PASSWORD", "admin")

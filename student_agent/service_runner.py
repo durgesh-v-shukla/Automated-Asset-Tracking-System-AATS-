@@ -24,6 +24,7 @@ class AgentRuntime:
         self._agent_version: str = "1.0.0"
         self._heartbeat_interval_sec: int = 30
         self._pidfile = os.path.join(self._base_dir, "agent.pid")
+        self._bluetooth_available: bool = False
 
     def _load_config(self) -> Dict:
         with open(self._config_path, "r", encoding="utf-8") as f:
@@ -78,6 +79,7 @@ class AgentRuntime:
             poll_interval_sec=max(scan_interval_sec, 5),
             on_change_callback=device_callback,
         )
+        self._bluetooth_available = self._bt_monitor.is_available()
 
         self._running = True
 
@@ -99,6 +101,7 @@ class AgentRuntime:
                         "pc_status": "online",
                         "last_seen": None,
                         "agent_version": self._agent_version,
+                        "bluetooth_available": self._bluetooth_available,
                     }
                 )
                 time.sleep(self._heartbeat_interval_sec)
@@ -124,6 +127,7 @@ class AgentRuntime:
                         "pc_status": "offline",
                         "last_seen": None,
                         "agent_version": self._agent_version,
+                        "bluetooth_available": self._bluetooth_available,
                     }
                 )
             except Exception:
