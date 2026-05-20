@@ -2,6 +2,20 @@
 
 AATS is a lab anti-theft monitoring system for tracking USB and Bluetooth assets across PCs. Student agents monitor devices, publish MQTT events, and the FastAPI server turns those events into live dashboard status, alerts, and history.
 
+## Current status
+
+WARNING: This project is a lab prototype and is NOT production-ready. The
+codebase contains several critical security and stability issues that must be
+addressed before deployment. See `future_fix.txt` for the canonical backlog of
+issues and remediation steps, and `test_report.txt` for the latest test results.
+
+**SECURITY NOTICE (READ FIRST):** Do not deploy this repository to production
+without first completing the Phase 1 fixes listed in `future_fix.txt` (hardcoded
+credentials, rate limiting, MQTT auth, and event integrity). Before running any
+services, create a local `.env` file (see "Configuration" below) with the
+required admin credentials and broker settings. Never commit `.env` to source
+control — a reference example is provided in `.env.example`.
+
 ## What it does
 
 - Tracks USB devices by `VID/PID` and Bluetooth devices by `MAC` address and RSSI threshold.
@@ -103,6 +117,11 @@ The dashboard pages map directly to the code:
 - Mosquitto on the admin machine or a bundled/installed broker available to the admin setup script
 - Windows for the packaged `.exe` workflow
 
+NOTE: Before starting the server, create a `.env` file in the repository root
+containing at minimum `AATS_ADMIN_USERNAME` and `AATS_ADMIN_PASSWORD` (see the
+`Configuration` section). Use `.env.example` as a template and do NOT commit
+your `.env` file to git.
+
 ### Packaged workflow
 
 1. Build the executables once on each machine:
@@ -156,6 +175,30 @@ Open `admin_dashboard/login.html` in a browser and sign in with the configured a
 - Server env vars: `AATS_HOST`, `AATS_PORT`, `AATS_MQTT_BROKER`, `AATS_MQTT_PORT`, `AATS_DB_PATH`
 - Timeout env vars: `AATS_USB_TIMEOUT_SEC`, `AATS_BT_TIMEOUT_SEC`, `AATS_HEARTBEAT_STALENESS_SEC`
 - Admin auth env vars: `AATS_ADMIN_USERNAME`, `AATS_ADMIN_PASSWORD`
+
+Notes:
+- `AATS_ADMIN_USERNAME` and `AATS_ADMIN_PASSWORD` are required for admin access.
+	Do not rely on defaults; create a `.env` file with explicit values before
+	launching the server. See `.env.example` for the minimal template.
+- `AATS_DB_PATH` should be an absolute path or resolved relative to the
+	`server/` package; using the default relative path may create the database in
+	an unexpected location if the current working directory differs from the
+	repository root. The recommended value is `server/database/aats.db` resolved
+	from the server package location.
+- `AATS_MQTT_BROKER` / `AATS_MQTT_PORT` must point to an accessible broker.
+
+Example minimal `.env` (DO NOT COMMIT):
+
+```
+AATS_ADMIN_USERNAME=admin
+AATS_ADMIN_PASSWORD=replace-with-strong-password
+AATS_MQTT_BROKER=127.0.0.1
+AATS_MQTT_PORT=1883
+AATS_DB_PATH=server/database/aats.db
+```
+
+Create `.env` from the example and then start the server as shown in
+"Manual workflow" below.
 
 ## Database model
 

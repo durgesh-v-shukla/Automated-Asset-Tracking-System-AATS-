@@ -4,6 +4,15 @@ AATS (Automated Asset Tracking System) - PROJECT ISSUES & REMEDIATION PLAN
 Generated: April 28, 2026
 Project: c:\Users\Siddharth\Desktop\sem 4\iot\project\AATS
 
+CANONICAL BACKLOG NOTICE:
+This file is the canonical backlog for project issues and remediation steps.
+Treat `future_fix.txt` as the single source of truth for known problems
+and remediation guidance — do not duplicate the same issue lists in other
+documents. See `test_report.txt` and `IMPLEMENTATION_SUMMARY.txt` for
+short executive summaries that link back to this file.
+
+══════════════════════════════════════════════════════════════════════════════
+
 ═══════════════════════════════════════════════════════════════════════════════
 EXECUTIVE SUMMARY
 ═══════════════════════════════════════════════════════════════════════════════

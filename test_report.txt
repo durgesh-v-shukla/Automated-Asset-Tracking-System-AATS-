@@ -19,6 +19,9 @@ The project is FUNCTIONAL and can run, but has critical security and stability
 issues documented in future_fix.txt that MUST be addressed before production 
 deployment.
 
+CANONICAL BACKLOG: `future_fix.txt` — contains the full issue list, priorities,
+and step-by-step remediation guidance. Refer to it for implementation details.
+
 ═══════════════════════════════════════════════════════════════════════════════
 DETAILED TEST RESULTS
 ═══════════════════════════════════════════════════════════════════════════════
