@@ -70,7 +70,9 @@ def severity_for(status: str) -> str:
 
 def timeout_for(payload: Dict) -> int:
     if payload.get("device_type") == "usb" and payload.get("status") == "MISSING":
-        return settings.usb_missing_timeout_sec
+        # USB unplug events are definitive; surface them immediately instead of waiting
+        # for the debounce window that we keep for noisier peripherals.
+        return 0
     if payload.get("device_type") == "bluetooth" and payload.get("status") in {"MISSING", "WEAK_SIGNAL"}:
         return settings.bluetooth_missing_timeout_sec
     return 0
