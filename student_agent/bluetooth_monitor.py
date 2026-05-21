@@ -27,17 +27,21 @@ class BluetoothMonitor:
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    async def _scan_devices(self) -> Dict[str, int]:
+    async def _scan_devices(self) -> Dict[str, Optional[int]]:
         if BleakScanner is None:
             return {}
         discovered = await BleakScanner.discover(timeout=4.0, return_adv=False)
-        by_mac: Dict[str, int] = {}
+        by_mac: Dict[str, Optional[int]] = {}
         for item in discovered:
             mac = (item.address or "").upper()
             if not mac:
                 continue
             rssi = getattr(item, "rssi", None)
             if rssi is None:
+                metadata = getattr(item, "metadata", None) or {}
+                rssi = metadata.get("rssi")
+            if rssi is None:
+                by_mac[mac] = None
                 continue
             by_mac[mac] = int(rssi)
         return by_mac
@@ -49,8 +53,8 @@ class BluetoothMonitor:
     def is_available(self) -> bool:
         return self._available
 
-    def _resolve_status(self, rssi: Optional[int], weak_threshold: int) -> str:
-        if rssi is None:
+    def _resolve_status(self, present: bool, rssi: Optional[int], weak_threshold: int) -> str:
+        if not present:
             return "MISSING"
         if rssi < weak_threshold:
             return "WEAK_SIGNAL"
@@ -84,8 +88,9 @@ class BluetoothMonitor:
                 alias = device.get("alias", device_id)
                 weak_threshold = int(device.get("weak_rssi_threshold", -75))
 
+                present = mac in seen
                 rssi = seen.get(mac)
-                new_status = self._resolve_status(rssi, weak_threshold)
+                new_status = self._resolve_status(present, rssi, weak_threshold)
                 old_status = self._state.get(device_id)
 
                 if old_status != new_status:

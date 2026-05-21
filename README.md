@@ -128,7 +128,7 @@ your `.env` file to git.
 
 ```powershell
 pyinstaller --onefile --uac-admin admin_setup.py
-pyinstaller --onefile agent_setup.py
+pyinstaller --clean agent_setup.spec
 ```
 
 2. Run `dist/admin_setup.exe` on the admin PC.

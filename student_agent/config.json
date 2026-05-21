@@ -1,0 +1,25 @@
+{
+  "lab_id": "1",
+  "pc_id": "siddharth1",
+  "broker": "10.93.219.183",
+  "port": 1883,
+  "scan_interval_sec": 2,
+  "heartbeat_interval_sec": 30,
+  "agent_version": "1.0.0",
+  "usb_devices": [
+    {
+      "device_id": "usb_input_device",
+      "vid": "10c4",
+      "pid": "0005",
+      "alias": "USB Input Device"
+    }
+  ],
+  "bluetooth_devices": [
+    {
+      "device_id": "bt_2cbeebc49a5b",
+      "mac": "2C:BE:EB:C4:9A:5B",
+      "alias": "CMF Neckband Pro",
+      "weak_rssi_threshold": -75
+    }
+  ]
+}
