@@ -14,7 +14,7 @@ On later runs : skips setup and launches the agent directly.
 
 import json
 import os
-import asyncio
+import importlib
 import re
 import socket
 import subprocess
@@ -24,14 +24,15 @@ import winreg
 import ctypes
 import urllib.request
 import urllib.error
-import importlib
 
+# Optional Bleak for fallback discovery
 BleakScanner = None
 try:
-    bleak_module = importlib.import_module("bleak")
-    BleakScanner = getattr(bleak_module, "BleakScanner", None)
+    bleak_mod = importlib.import_module('bleak')
+    BleakScanner = getattr(bleak_mod, 'BleakScanner', None)
 except Exception:
     BleakScanner = None
+
 
 # ── Configuration ──────────────────────────────────────────
 BROADCAST_PORT    = 37020
@@ -393,6 +394,37 @@ def scan_usb_devices() -> list[dict]:
     return devices
 
 
+def scan_bluetooth_devices_bleak() -> list[dict]:
+    """Discover Bluetooth devices using Bleak as a fallback."""
+    if BleakScanner is None:
+        return []
+    try:
+        import asyncio
+
+        discovered = asyncio.run(BleakScanner.discover(timeout=5.0, return_adv=False))
+    except Exception as exc:
+        print(f"[!] Bleak discovery failed: {exc}")
+        return []
+
+    devices: list[dict] = []
+    seen_macs: set[str] = set()
+    for item in discovered:
+        mac = normalize_mac_address(getattr(item, "address", "") or "")
+        if not mac or mac in seen_macs:
+            continue
+        seen_macs.add(mac)
+        alias = (getattr(item, "name", None) or getattr(item, "local_name", None) or mac)
+        devices.append(
+            {
+                "device_id": f"bt_{mac.replace(':', '').lower()}",
+                "mac": mac,
+                "alias": alias,
+                "weak_rssi_threshold": -75,
+            }
+        )
+    return devices
+
+
 def pick_usb_devices(devices: list[dict]) -> list[dict]:
     """Show device list and let user pick which ones to monitor."""
     if not devices:
@@ -426,21 +458,127 @@ def pick_usb_devices(devices: list[dict]) -> list[dict]:
     return chosen
 
 
-async def scan_bluetooth_devices_async() -> list[dict]:
-    if BleakScanner is None:
+def _normalize_bluetooth_address(value: object) -> str:
+    if value is None:
+        return ""
+
+    if isinstance(value, (list, tuple)):
+        parts = []
+        for item in value:
+            try:
+                parts.append(f"{int(item) & 0xFF:02X}")
+            except Exception:
+                parts.append(str(item).strip())
+        value = "".join(parts)
+
+    text = str(value).strip().upper()
+    if not text:
+        return ""
+
+    compact = re.sub(r"[^0-9A-F]", "", text)
+    if len(compact) == 12:
+        return ":".join(compact[i:i + 2] for i in range(0, 12, 2))
+
+    return text
+
+
+def _run_powershell_json(script: str) -> list[dict]:
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        capture_output=True,
+        text=True,
+        creationflags=CREATE_NO_WINDOW,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "PowerShell query failed")
+
+    raw = result.stdout.strip()
+    if not raw:
         return []
 
-    discovered = await BleakScanner.discover(timeout=5.0, return_adv=False)
+    parsed = json.loads(raw)
+    if isinstance(parsed, dict):
+        return [parsed]
+    if isinstance(parsed, list):
+        return parsed
+    return []
+
+
+def scan_bluetooth_devices() -> list[dict]:
+    print("[*] Loading Windows paired/connected Bluetooth devices...")
+    script = r"""
+$keys = @(
+    'DEVPKEY_Device_Address',
+    'DEVPKEY_Device_Bluetooth_DeviceAddress',
+    'DEVPKEY_Bluetooth_DeviceAddress'
+)
+
+$devices = Get-PnpDevice -Class Bluetooth | Where-Object {
+    $_.FriendlyName -and (
+        $_.InstanceId -like 'BTHENUM*' -or
+        $_.InstanceId -like 'BTHLEDevice*'
+    ) -and (
+        $_.Status -eq 'OK' -or $_.Present -eq $true
+    )
+}
+
+$results = foreach ($device in $devices) {
+    $address = $null
+    foreach ($key in $keys) {
+        try {
+            $prop = Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName $key -ErrorAction Stop
+            if ($prop -and $prop.Data) {
+                $address = $prop.Data
+                break
+            }
+        } catch {
+        }
+    }
+
+    if ($address) {
+        [PSCustomObject]@{
+            FriendlyName = $device.FriendlyName
+            InstanceId = $device.InstanceId
+            Address = $address
+            Status = $device.Status
+        }
+    }
+}
+
+$results | ConvertTo-Json -Depth 4
+"""
+
+    try:
+        raw_devices = _run_powershell_json(script)
+    except Exception as exc:
+        # Log PowerShell error for debugging
+        try:
+            base = get_base_dir()
+            logs_dir = os.path.join(base, "logs")
+            os.makedirs(logs_dir, exist_ok=True)
+            log_path = os.path.join(logs_dir, "bluetooth_powershell.log")
+            with open(log_path, "a", encoding="utf-8") as lf:
+                lf.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] PowerShell Bluetooth query failed: {exc}\n")
+        except Exception:
+            pass
+
+        print(f"[!] Windows Bluetooth query failed: {exc}; falling back to Bleak if available.")
+        # Try Bleak-based discovery as a fallback
+        if BleakScanner is not None:
+            return scan_bluetooth_devices_bleak()
+        return []
+
     devices: list[dict] = []
     seen_macs: set[str] = set()
 
-    for item in discovered:
-        mac = normalize_mac_address(getattr(item, "address", "") or "")
+    for item in raw_devices:
+        mac = _normalize_bluetooth_address(item.get("Address"))
         if not mac or mac in seen_macs:
             continue
         seen_macs.add(mac)
 
-        alias = (getattr(item, "name", None) or getattr(item, "local_name", None) or mac)
+        alias = (item.get("FriendlyName") or mac).strip()
         devices.append(
             {
                 "device_id": f"bt_{mac.replace(':', '').lower()}",
@@ -453,30 +591,17 @@ async def scan_bluetooth_devices_async() -> list[dict]:
     return devices
 
 
-def scan_bluetooth_devices() -> list[dict]:
-    if BleakScanner is None:
-        print("[!] Bluetooth scanning is unavailable because 'bleak' is not installed.")
-        return []
-
-    print("[*] Scanning nearby Bluetooth devices...")
-    try:
-        return asyncio.run(scan_bluetooth_devices_async())
-    except Exception as exc:
-        print(f"[!] Bluetooth scan failed: {exc}")
-        return []
-
-
 def pick_bluetooth_devices(devices: list[dict]) -> list[dict]:
     chosen: list[dict] = []
     chosen_macs: set[str] = set()
 
     if devices:
-        print("\n[*] Nearby Bluetooth devices found:")
+        print("\n[*] Windows paired/connected Bluetooth devices found:")
         for i, device in enumerate(devices):
             label = device.get("alias") or device["mac"]
             print(f"    {i + 1}. {label} ({device['mac']})")
 
-        print("\n[?] Enter the numbers of Bluetooth devices to monitor (e.g. 1,3) or press Enter to skip scanned devices:")
+        print("\n[?] Enter the numbers of Windows paired/connected Bluetooth devices to monitor (e.g. 1,3) or press Enter to skip scanned devices:")
         selection = input("    > ").strip()
 
         if selection:
